@@ -1,6 +1,5 @@
 import logging
-import os
-from typing import Annotated, Optional
+from typing import Optional
 
 import vtk
 
@@ -11,7 +10,6 @@ from slicer.ScriptedLoadableModule import *
 from slicer.util import VTKObservationMixin
 from slicer.parameterNodeWrapper import (
     parameterNodeWrapper,
-    WithinRange,
 )
 
 import numpy as np
@@ -65,6 +63,7 @@ This is a simple lung segmentation module.
         self.parent.acknowledgementText = _("""
 Thanks mom :D
 """)
+
 
 #
 # SegmentLungv2ParameterNode
@@ -217,6 +216,7 @@ def __kmeans_clusterization(img: np.ndarray, n_clusters: int):
 
     return points, clusters.cluster_centers_
 
+
 def watershed_segmentation(img: np.ndarray, kmeans_centers):
     img = np.where(img > 0, 1, 0)
     markers = np.zeros(img.shape, dtype=np.int32)
@@ -224,12 +224,12 @@ def watershed_segmentation(img: np.ndarray, kmeans_centers):
     for i, center in enumerate(kmeans_centers):
         cnter_int = tuple(np.round(center).astype(int))
 
-
         if 0 <= cnter_int[0] < img.shape[0] and 0 <= cnter_int[1] < img.shape[1] and 0 <= cnter_int[2] < img.shape[2]:
             markers[cnter_int] = i + 1
 
     distance = distance_transform_edt(img)
     return watershed(-distance, markers, mask=img)
+
 
 def get_lung_mask(foo):
     lung_mask = np.array(foo)
@@ -257,7 +257,7 @@ def get_lung_mask(foo):
             lung_mask[:, :, i] = cv2.morphologyEx(lung_mask[:, :, i], cv2.MORPH_CLOSE,
                                                   cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)))
 
-        #label the right and left lung
+        # label the right and left lung
         right_lung = np.zeros_like(labels)
         left_lung = np.zeros_like(labels)
         for prop in props[1:3]:
