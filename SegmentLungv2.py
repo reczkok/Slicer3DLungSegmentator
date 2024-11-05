@@ -15,6 +15,11 @@ from slicer.parameterNodeWrapper import (
 import numpy as np
 
 try:
+    import matplotlib.pyplot as plt
+except ModuleNotFoundError:
+    slicer.util.pip_install("matplotlib")
+
+try:
     from sklearn import cluster
 except ModuleNotFoundError:
     slicer.util.pip_install("scikit-learn")
@@ -36,7 +41,7 @@ try:
 except ModuleNotFoundError:
     slicer.util.pip_install("scikit-image")
 
-from slicer import vtkMRMLScalarVolumeNode
+from slicer import vtkMRMLScalarVolumeNode, vtkMRMLSegmentationNode
 
 
 #
@@ -79,6 +84,8 @@ class SegmentLungv2ParameterNode:
     """
 
     inputVolume: vtkMRMLScalarVolumeNode
+    totalSegmentator: vtkMRMLSegmentationNode
+    groundTruthVolume: vtkMRMLScalarVolumeNode
 
 
 #
@@ -200,7 +207,11 @@ class SegmentLungv2Widget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """Run processing when user clicks "Apply" button."""
         with slicer.util.tryWithErrorDisplay(_("Failed to compute results."), waitCursor=True):
             # Compute output
-            self.logic.process(self.ui.inputSelector.currentNode())
+            self.logic.process(
+                self.ui.inputSelector.currentNode(),
+                self.ui.totalSegmentatorSelector.currentNode(),
+                self.ui.groundTruthSelector.currentNode()
+            )
 
 
 #
@@ -276,6 +287,26 @@ def get_lung_mask(foo):
     return lung_mask
 
 
+def compute_dice_coefficient(mask_gt, mask_pred):
+    """Computes soerensen-dice coefficient.
+
+  compute the soerensen-dice coefficient between the ground truth mask `mask_gt`
+  and the predicted mask `mask_pred`.
+
+  Args:
+    mask_gt: 3-dim Numpy array of type bool. The ground truth mask.
+    mask_pred: 3-dim Numpy array of type bool. The predicted mask.
+
+  Returns:
+    the dice coeffcient as float. If both masks are empty, the result is NaN.
+  """
+    volume_sum = mask_gt.sum() + mask_pred.sum()
+    if volume_sum == 0:
+        return np.NaN
+    volume_intersect = (mask_gt & mask_pred).sum()
+    return 2 * volume_intersect / volume_sum
+
+
 class SegmentLungv2Logic(ScriptedLoadableModuleLogic):
     """This class should implement all the actual
     computation done by your module.  The interface
@@ -293,8 +324,8 @@ class SegmentLungv2Logic(ScriptedLoadableModuleLogic):
     def getParameterNode(self):
         return SegmentLungv2ParameterNode(super().getParameterNode())
 
-    def process(self,
-                inputVolume: vtkMRMLScalarVolumeNode) -> None:
+    def process(self, inputVolume: vtkMRMLScalarVolumeNode, totalSegmentator: vtkMRMLSegmentationNode = None,
+                groundTruthVolume: vtkMRMLScalarVolumeNode = None) -> None:
         """
         Run the processing algorithm.
         Can be used without GUI widget.
@@ -330,6 +361,35 @@ class SegmentLungv2Logic(ScriptedLoadableModuleLogic):
         slicer.util.updateSegmentBinaryLabelmapFromArray(right_lung, segmentationNode, segmentR, inputVolume)
 
         segmentationNode.CreateClosedSurfaceRepresentation()
+
+        if groundTruthVolume is not None:
+            gt = slicer.util.arrayFromVolume(groundTruthVolume)
+
+            left_lung_dice = compute_dice_coefficient(np.where(gt == 2, 1, 0), left_lung.astype(bool))
+            right_lung_dice = compute_dice_coefficient(np.where(gt == 3, 1, 0), right_lung.astype(bool))
+            print("Predicted segmentations")
+            print(f"Left lung dice coefficient: {left_lung_dice}")
+            print(f"Right lung dice coefficient: {right_lung_dice}")
+
+            if totalSegmentator is not None:
+                segment_ids = totalSegmentator.GetSegmentation().GetSegmentIDs()
+                left_lung_ids = ['lung_upper_lobe_left', 'lung_middle_lobe_left', 'lung_lower_lobe_left']
+                right_lung_ids = ['lung_upper_lobe_right', 'lung_middle_lobe_right', 'lung_lower_lobe_right']
+
+                left_lung_total = np.zeros_like(left_lung).astype(bool)
+                right_lung_total = np.zeros_like(right_lung).astype(bool)
+
+                for segment_id in segment_ids:
+                    if segment_id in left_lung_ids:
+                        left_lung_total = np.logical_or(left_lung_total, slicer.util.arrayFromSegmentBinaryLabelmap(totalSegmentator, segment_id, inputVolume).astype(bool))
+                    elif segment_id in right_lung_ids:
+                        right_lung_total = np.logical_or(right_lung_total, slicer.util.arrayFromSegmentBinaryLabelmap(totalSegmentator, segment_id, inputVolume).astype(bool))
+
+                left_lung_dice = compute_dice_coefficient(np.where(gt == 2, 1, 0).astype(bool), left_lung_total)
+                right_lung_dice = compute_dice_coefficient(np.where(gt == 3, 1, 0).astype(bool), right_lung_total)
+                print("Total segmentator")
+                print(f"Left lung dice coefficient: {left_lung_dice}")
+                print(f"Right lung dice coefficient: {right_lung_dice}")
 
         stopTime = time.time()
         logging.info(f"Processing completed in {stopTime - startTime:.2f} seconds")
