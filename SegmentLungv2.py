@@ -284,6 +284,11 @@ def get_lung_mask(foo):
     if np.unique(watersh).shape[0] > 2:
         lung_mask = watersh
 
+    if centroids[0][1] < centroids[1][1] and np.unique(watersh).shape[0] > 2:
+        lung_mask = np.where(lung_mask == 1, 3, lung_mask)
+        lung_mask = np.where(lung_mask == 2, 1, lung_mask)
+        lung_mask = np.where(lung_mask == 3, 2, lung_mask)
+
     return lung_mask
 
 
@@ -337,6 +342,8 @@ class SegmentLungv2Logic(ScriptedLoadableModuleLogic):
         startTime = time.time()
         logging.info("Processing started")
 
+        input_origin = inputVolume.GetOrigin()
+
         # Create segmentation
         segmentationNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode")
         segmentationNode.CreateDefaultDisplayNodes()  # only needed for display
@@ -354,8 +361,8 @@ class SegmentLungv2Logic(ScriptedLoadableModuleLogic):
         lung_mask = np.swapaxes(lung_mask, 0, 2)
 
         # Separate the left and right lung (based on label)
-        left_lung = np.where(lung_mask == 1, 1, 0).astype(np.uint8)
-        right_lung = np.where(lung_mask == 2, 1, 0).astype(np.uint8)
+        left_lung = np.where(lung_mask == 2, 1, 0).astype(np.uint8)
+        right_lung = np.where(lung_mask == 1, 1, 0).astype(np.uint8)
 
         slicer.util.updateSegmentBinaryLabelmapFromArray(left_lung, segmentationNode, segmentL, inputVolume)
         slicer.util.updateSegmentBinaryLabelmapFromArray(right_lung, segmentationNode, segmentR, inputVolume)
